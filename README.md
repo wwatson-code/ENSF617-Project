@@ -47,6 +47,20 @@ The notebooks now read `WANDB_API_KEY` from the environment instead of storing i
 - `genai_classifier_resnet18_residual_autocorr_prompt_train_flat_eval.ipynb`
   - prompt-aware training with flat manifest-driven validation/test evaluation
 
+## W&B Run Summary
+
+These summaries are based on the local W&B run artifacts currently saved in the repo.
+
+| Experiment | Main Parameters | Key Result |
+| --- | --- | --- |
+| `genai_classifier_images.ipynb` with ResNet-18 | `224x224`, batch size `16`, lr `1e-3`, weight decay `1e-4`, trained `2` epochs on `train_balanced`, evaluated on raw `validation` and `test` | Best completed run reached `54.0%` test accuracy, with `80.9%` validation accuracy |
+| `genai_classifier_images.ipynb` with ResNet-50 | `224x224`, batch size `16`, lr `1e-3`, weight decay `1e-4`, trained `5` and `10` epoch variants on `train_balanced`, evaluated on raw `validation` and `test` | Best completed run reached `72.6%` test accuracy and `88.3%` validation accuracy; class recall was uneven (`79.6%` AI vs `39.7%` real) |
+| `genai_classifier_images.ipynb` with ResNet-50 on balanced eval splits | `224x224`, batch size `16`, lr `1e-3`, weight decay `1e-4`, trained `1` epoch on `train_balanced`, evaluated on `validation_balanced` and `test_balanced` | Reached `57.0%` test accuracy and `83.2%` validation accuracy |
+| `genai_classifier_resnet18_residual_autocorr.ipynb` | Residual plus autocorrelation preprocessing, single-channel `224x224`, ResNet-18 from scratch, batch size `16`, lr `1e-3`, weight decay `1e-4`, trained `10` epochs on balanced splits | Reached `55.7%` test accuracy and `85.0%` validation accuracy; recall was `63.8%` for AI and `47.7%` for real |
+| `genai_classifier_vgg16_random_patch.ipynb` | VGG-16 from scratch, random `224x224` train crop, center `224x224` eval crop, batch size `16`, lr `1e-4`, weight decay `1e-4`, balanced splits | Runs were started, but the saved local W&B artifacts do not include a completed final test summary yet |
+
+The strongest finished baseline so far is the raw-image ResNet-50 notebook, but the runs also show a persistent bias toward predicting `ai_generated`, especially on the `real` class.
+
 ## Notes
 
 - The notebooks assume data lives under `output/` relative to the repo root.
