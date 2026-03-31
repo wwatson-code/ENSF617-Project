@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 from io import BytesIO
@@ -15,7 +16,7 @@ from PIL import Image
 HF_DATASET_NAME = "Rajarshi-Roy-research/Defactify_Image_Dataset"
 HF_CONFIG_NAME = "default"
 ROWS_API_URL = "https://datasets-server.huggingface.co/rows"
-DEFAULT_EXPORT_ROOT = Path("output/jupyter-notebook/data/defactify_binary_spectrogram")
+DEFAULT_EXPORT_ROOT = Path("output/spectrogram_data")
 LABEL_MAP = {0: "real", 1: "ai_generated"}
 VALID_SPLITS = {"train", "validation", "test"}
 MANIFEST_FIELDS = [
@@ -25,16 +26,18 @@ MANIFEST_FIELDS = [
     "label_a_name",
     "label_b",
     "caption",
-    "height",
-    "width",
+    "original_height",
+    "original_width",
+    "saved_height",
+    "saved_width",
     "channels",
 ]
 
-# Download settings.
 START_PAGE_NUM = 1
 PAGE_SIZE = 100
 SPLIT = "train"
-EXPORT_ROOT = Path("output")
+EXPORT_ROOT = Path("output/spectrogram_data")
+TARGET_SIZE = 224
 
 
 def normalize_split(split: str) -> str:
@@ -90,6 +93,12 @@ def download_rgb_image(image_url: str) -> Image.Image:
         return Image.open(BytesIO(response.read())).convert("RGB")
 
 
+def resize_image(image: Image.Image, target_size: int) -> Image.Image:
+    if target_size <= 0:
+        raise ValueError("target_size must be positive")
+    return image.resize((target_size, target_size), Image.BILINEAR)
+
+
 def min_max_normalize(array: np.ndarray, eps: float = 1e-8) -> np.ndarray:
     array_min = float(array.min())
     array_max = float(array.max())
@@ -99,11 +108,6 @@ def min_max_normalize(array: np.ndarray, eps: float = 1e-8) -> np.ndarray:
 
 
 def compute_spectrogram_features(image: Image.Image) -> dict[str, np.ndarray]:
-    """
-    For images, this is more accurately a 2D frequency spectrum than an audio spectrogram.
-    We compute a per-channel 2D FFT and save centered log-power spectrum maps that can be
-    used directly as spectrogram-like model inputs.
-    """
     rgb = np.asarray(image, dtype=np.float32)
     channels_first = np.transpose(rgb, (2, 0, 1))
 
@@ -124,13 +128,11 @@ def compute_spectrogram_features(image: Image.Image) -> dict[str, np.ndarray]:
     spectrogram_normalized = np.stack(
         [min_max_normalize(channel) for channel in spectrogram],
         axis=0,
-    )
+    ).astype(np.float32)
 
     return {
-        # Main model-ready representation.
         "spectrogram": spectrogram,
         "spectrogram_normalized": spectrogram_normalized,
-        # Supporting frequency-domain representations.
         "magnitude": magnitude.astype(np.float32),
         "magnitude_shifted": magnitude_shifted.astype(np.float32),
         "power_spectrum": power_spectrum.astype(np.float32),
@@ -139,29 +141,51 @@ def compute_spectrogram_features(image: Image.Image) -> dict[str, np.ndarray]:
         "log_magnitude_shifted": log_magnitude_shifted.astype(np.float32),
         "log_power_spectrum": log_power_spectrum.astype(np.float32),
         "log_power_spectrum_shifted": log_power_spectrum_shifted.astype(np.float32),
-        # Keep complex parts in case you want to analyze or reconstruct later.
         "fft_real": fft.real.astype(np.float32),
         "fft_imag": fft.imag.astype(np.float32),
         "fft_shifted_real": fft_shifted.real.astype(np.float32),
         "fft_shifted_imag": fft_shifted.imag.astype(np.float32),
-        # Metadata.
-        "original_shape": np.asarray(channels_first.shape, dtype=np.int32),
+        "saved_shape": np.asarray(channels_first.shape, dtype=np.int32),
     }
 
 
-def save_spectrogram_sample(image_url: str, spectrogram_path: Path) -> tuple[int, int, int]:
+def save_spectrogram_sample(
+    image_url: str,
+    spectrogram_path: Path,
+    *,
+    target_size: int,
+) -> tuple[int, int, int, int, int]:
     if spectrogram_path.exists():
         with np.load(spectrogram_path) as data:
-            channels, height, width = data["original_shape"].tolist()
-        return int(height), int(width), int(channels)
+            if "saved_shape" in data:
+                channels, saved_height, saved_width = data["saved_shape"].tolist()
+            elif "original_shape" in data:
+                channels, saved_height, saved_width = data["original_shape"].tolist()
+            else:
+                spec = data["spectrogram_normalized"] if "spectrogram_normalized" in data else data["spectrogram"]
+                channels, saved_height, saved_width = spec.shape
+
+            if "original_height" in data and "original_width" in data:
+                original_height = int(data["original_height"])
+                original_width = int(data["original_width"])
+            else:
+                original_height = int(saved_height)
+                original_width = int(saved_width)
+
+        return original_height, original_width, int(saved_height), int(saved_width), int(channels)
 
     image = download_rgb_image(image_url)
-    spectrogram_features = compute_spectrogram_features(image)
+    original_width, original_height = image.size
+    resized_image = resize_image(image, target_size=target_size)
+
+    spectrogram_features = compute_spectrogram_features(resized_image)
+    spectrogram_features["original_height"] = np.asarray(original_height, dtype=np.int32)
+    spectrogram_features["original_width"] = np.asarray(original_width, dtype=np.int32)
+
     spectrogram_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(spectrogram_path, **spectrogram_features)
 
-    height, width = image.height, image.width
-    return height, width, 3
+    return original_height, original_width, target_size, target_size, 3
 
 
 def download_page(
@@ -170,6 +194,7 @@ def download_page(
     page_num: int,
     page_size: int,
     export_root: Path,
+    target_size: int,
 ) -> tuple[int, int]:
     split_name = normalize_split(split)
     metadata_dir = prepare_export_dirs(export_root, split_name)
@@ -187,7 +212,11 @@ def download_page(
         relative_path = Path(split_name) / label_name / f"{split_name}_{row_idx:06d}.npz"
         spectrogram_path = export_root / relative_path
 
-        height, width, channels = save_spectrogram_sample(row["Image"]["src"], spectrogram_path)
+        original_height, original_width, saved_height, saved_width, channels = save_spectrogram_sample(
+            row["Image"]["src"],
+            spectrogram_path,
+            target_size=target_size,
+        )
 
         manifest_rows.append(
             {
@@ -197,8 +226,10 @@ def download_page(
                 "label_a_name": label_name,
                 "label_b": label_b_value,
                 "caption": row["Caption"],
-                "height": height,
-                "width": width,
+                "original_height": original_height,
+                "original_width": original_width,
+                "saved_height": saved_height,
+                "saved_width": saved_width,
                 "channels": channels,
             }
         )
@@ -214,11 +245,15 @@ def download_data(
     page_size: int,
     split: str,
     export_root: Path | str = DEFAULT_EXPORT_ROOT,
+    *,
+    target_size: int = TARGET_SIZE,
 ) -> None:
     if page_num < 1:
         raise ValueError("page_num must be >= 1")
     if page_size < 1 or page_size > 100:
         raise ValueError("page_size must be between 1 and 100")
+    if target_size < 1:
+        raise ValueError("target_size must be >= 1")
 
     split_name = normalize_split(split)
     root = Path(export_root)
@@ -229,11 +264,12 @@ def download_data(
         page_num=current_page,
         page_size=page_size,
         export_root=root,
+        target_size=target_size,
     )
     total_pages = ceil(total_rows / page_size)
     print(
         f"Downloaded page {current_page}/{total_pages} for {split_name}: "
-        f"{returned_rows} rows"
+        f"{returned_rows} rows | target_size={target_size}"
     )
 
     while returned_rows > 0 and current_page < total_pages:
@@ -243,19 +279,34 @@ def download_data(
             page_num=current_page,
             page_size=page_size,
             export_root=root,
+            target_size=target_size,
         )
         print(
             f"Downloaded page {current_page}/{total_pages} for {split_name}: "
-            f"{returned_rows} rows"
+            f"{returned_rows} rows | target_size={target_size}"
         )
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Download Defactify rows and save fixed-size frequency-domain spectrogram NPZ files."
+    )
+    parser.add_argument("--page-num", type=int, default=START_PAGE_NUM, help="Starting page number (1-indexed).")
+    parser.add_argument("--page-size", type=int, default=PAGE_SIZE, help="Rows per page, max 100.")
+    parser.add_argument("--split", type=str, default=SPLIT, choices=sorted(VALID_SPLITS), help="Dataset split.")
+    parser.add_argument("--export-root", type=Path, default=EXPORT_ROOT, help="Root output folder.")
+    parser.add_argument("--target-size", type=int, default=TARGET_SIZE, help="Fixed saved height/width.")
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = parse_args()
     download_data(
-        page_num=START_PAGE_NUM,
-        page_size=PAGE_SIZE,
-        split=SPLIT,
-        export_root=EXPORT_ROOT,
+        page_num=args.page_num,
+        page_size=args.page_size,
+        split=args.split,
+        export_root=args.export_root,
+        target_size=args.target_size,
     )
 
 
