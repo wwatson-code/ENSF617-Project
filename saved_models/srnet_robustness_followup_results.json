@@ -1,0 +1,136 @@
+[
+  {
+    "experiment": "autocorr_small",
+    "representation": "autocorr",
+    "parameters": 96002,
+    "epochs": 2,
+    "optimizer": "adam",
+    "weight_decay": 0.0001,
+    "label_smoothing": 0.0,
+    "dropout_probability": 0.0,
+    "history": [
+      {
+        "epoch": 1,
+        "train_loss": 0.1338154047727585,
+        "train_accuracy": 0.95125,
+        "val_loss": 0.03697573028504848,
+        "val_accuracy": 0.99,
+        "val_balanced_accuracy": 0.99,
+        "val_real_recall": 0.98,
+        "val_ai_recall": 1.0
+      },
+      {
+        "epoch": 2,
+        "train_loss": 0.03302631422877312,
+        "train_accuracy": 0.99,
+        "val_loss": 0.00638702574186027,
+        "val_accuracy": 1.0,
+        "val_balanced_accuracy": 1.0,
+        "val_real_recall": 1.0,
+        "val_ai_recall": 1.0
+      }
+    ],
+    "validation": {
+      "loss": 0.00638702574186027,
+      "accuracy": 1.0,
+      "balanced_accuracy": 1.0,
+      "real_recall": 1.0,
+      "ai_recall": 1.0,
+      "confusion": [
+        [
+          200,
+          0
+        ],
+        [
+          0,
+          200
+        ]
+      ]
+    },
+    "test": {
+      "loss": 1.8328140258789063,
+      "accuracy": 0.6875,
+      "balanced_accuracy": 0.6875,
+      "real_recall": 0.91,
+      "ai_recall": 0.465,
+      "confusion": [
+        [
+          182,
+          18
+        ],
+        [
+          107,
+          93
+        ]
+      ]
+    },
+    "duration_seconds": 196.89130401611328
+  },
+  {
+    "experiment": "raw_residual_small_reg",
+    "representation": "residual",
+    "parameters": 96002,
+    "epochs": 2,
+    "optimizer": "adamw",
+    "weight_decay": 0.0005,
+    "label_smoothing": 0.05,
+    "dropout_probability": 0.3,
+    "history": [
+      {
+        "epoch": 1,
+        "train_loss": 0.2855773508548737,
+        "train_accuracy": 0.91625,
+        "val_loss": 0.18669819653034211,
+        "val_accuracy": 0.975,
+        "val_balanced_accuracy": 0.975,
+        "val_real_recall": 0.95,
+        "val_ai_recall": 1.0
+      },
+      {
+        "epoch": 2,
+        "train_loss": 0.17541805684566497,
+        "train_accuracy": 0.9825,
+        "val_loss": 0.3217808187007904,
+        "val_accuracy": 0.935,
+        "val_balanced_accuracy": 0.935,
+        "val_real_recall": 0.87,
+        "val_ai_recall": 1.0
+      }
+    ],
+    "validation": {
+      "loss": 0.3217808187007904,
+      "accuracy": 0.935,
+      "balanced_accuracy": 0.935,
+      "real_recall": 0.87,
+      "ai_recall": 1.0,
+      "confusion": [
+        [
+          174,
+          26
+        ],
+        [
+          0,
+          200
+        ]
+      ]
+    },
+    "test": {
+      "loss": 0.9890324783325195,
+      "accuracy": 0.6575,
+      "balanced_accuracy": 0.6575,
+      "real_recall": 0.74,
+      "ai_recall": 0.575,
+      "confusion": [
+        [
+          148,
+          52
+        ],
+        [
+          85,
+          115
+        ]
+      ]
+    },
+    "duration_seconds": 193.3586781024933
+  }
+]

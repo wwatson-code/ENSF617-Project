@@ -7,6 +7,8 @@ import shutil
 from collections import defaultdict
 from pathlib import Path
 
+WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_EXPORT_ROOT = WORKSPACE_ROOT / "ensf617" / "output"
 MANIFEST_FIELDS = [
     "row_index",
     "image_path",
@@ -49,12 +51,12 @@ def build_balanced_rows(
         for row in real_rows:
             balanced_row = dict(row)
             image_name = Path(row["image_path"]).name
-            balanced_row["image_path"] = str(Path(balanced_split) / "real" / image_name)
+            balanced_row["image_path"] = str(Path(balanced_split) / image_name)
             balanced_rows.append(balanced_row)
 
         balanced_ai_row = dict(selected_ai_row)
         ai_image_name = Path(selected_ai_row["image_path"]).name
-        balanced_ai_row["image_path"] = str(Path(balanced_split) / "ai_generated" / ai_image_name)
+        balanced_ai_row["image_path"] = str(Path(balanced_split) / ai_image_name)
         balanced_rows.append(balanced_ai_row)
 
     return balanced_rows
@@ -73,11 +75,10 @@ def copy_images(export_root: Path, rows: list[dict[str, str]], *, split: str) ->
     if balanced_root.exists():
         shutil.rmtree(balanced_root)
 
-    (balanced_root / "real").mkdir(parents=True, exist_ok=True)
-    (balanced_root / "ai_generated").mkdir(parents=True, exist_ok=True)
+    balanced_root.mkdir(parents=True, exist_ok=True)
 
     for row in rows:
-        source_path = export_root / split / row["label_a_name"] / Path(row["image_path"]).name
+        source_path = export_root / split / Path(row["image_path"]).name
         target_path = export_root / row["image_path"]
         shutil.copy2(source_path, target_path)
 
@@ -101,7 +102,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--export-root",
         type=Path,
-        default=Path("output"),
+        default=DEFAULT_EXPORT_ROOT,
         help="Root folder containing split folders and metadata manifests.",
     )
     parser.add_argument(
