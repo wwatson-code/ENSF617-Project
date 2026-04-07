@@ -11,10 +11,11 @@ from urllib.request import urlopen
 
 from PIL import Image
 
+WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 HF_DATASET_NAME = "Rajarshi-Roy-research/Defactify_Image_Dataset"
 HF_CONFIG_NAME = "default"
 ROWS_API_URL = "https://datasets-server.huggingface.co/rows"
-DEFAULT_EXPORT_ROOT = Path("output/jupyter-notebook/data/defactify_binary")
+DEFAULT_EXPORT_ROOT = WORKSPACE_ROOT / "ensf617" / "output"
 LABEL_MAP = {0: "real", 1: "ai_generated"}
 VALID_SPLITS = {"train", "validation", "test"}
 MANIFEST_FIELDS = [
@@ -26,15 +27,15 @@ MANIFEST_FIELDS = [
     "caption",
 ]
 
-# train completed 148/420
-# validation completed 31/90
-# test completed 29/450
+# train completed 230/420
+# validation completed 90/90
+# test completed 95/450
 
 # Download settings.
 START_PAGE_NUM = 30
 PAGE_SIZE = 100
 SPLIT = "test"
-EXPORT_ROOT = Path("output")
+EXPORT_ROOT = DEFAULT_EXPORT_ROOT
 
 
 def normalize_split(split: str) -> str:
@@ -49,9 +50,50 @@ def normalize_split(split: str) -> str:
 def prepare_export_dirs(root: Path, split_name: str) -> Path:
     metadata_dir = root / "metadata"
     metadata_dir.mkdir(parents=True, exist_ok=True)
-    for class_name in LABEL_MAP.values():
-        (root / split_name / class_name).mkdir(parents=True, exist_ok=True)
+    (root / split_name).mkdir(parents=True, exist_ok=True)
     return metadata_dir
+
+
+def read_manifest_rows(manifest_path: Path) -> list[dict[str, str]]:
+    with manifest_path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        if reader.fieldnames != MANIFEST_FIELDS:
+            raise ValueError(
+                f"{manifest_path} has columns {reader.fieldnames}, expected {MANIFEST_FIELDS}. "
+                "Delete the existing manifest or point export_root at a clean dataset folder."
+            )
+        return list(reader)
+
+
+def write_manifest_rows(manifest_path: Path, rows: list[dict[str, Any]]) -> None:
+    with manifest_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=MANIFEST_FIELDS)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def normalize_manifest_rows(
+    rows: list[dict[str, str]],
+    *,
+    split_name: str,
+) -> tuple[list[dict[str, str]], bool]:
+    normalized_rows: list[dict[str, str]] = []
+    changed = False
+
+    for row in rows:
+        normalized_row = dict(row)
+        flat_path = str(Path(split_name) / Path(normalized_row["image_path"]).name)
+        if normalized_row["image_path"] != flat_path:
+            normalized_row["image_path"] = flat_path
+            changed = True
+
+        if not normalized_row.get("label_a_name"):
+            normalized_row["label_a_name"] = LABEL_MAP[int(normalized_row["label_a"])]
+            changed = True
+
+        normalized_rows.append(normalized_row)
+
+    return normalized_rows, changed
 
 
 def fetch_rows_batch(split: str, offset: int, length: int) -> dict[str, Any]:
@@ -73,8 +115,25 @@ def fetch_rows_batch(split: str, offset: int, length: int) -> dict[str, Any]:
         return json.loads(response.read().decode("utf-8"))
 
 
-def append_manifest_rows(manifest_path: Path, rows: list[dict[str, Any]]) -> None:
+def append_manifest_rows(
+    manifest_path: Path,
+    rows: list[dict[str, Any]],
+    *,
+    split_name: str,
+) -> None:
     if not rows:
+        return
+
+    existing_row_indexes: set[int] = set()
+    if manifest_path.exists():
+        existing_rows = read_manifest_rows(manifest_path)
+        existing_rows, changed = normalize_manifest_rows(existing_rows, split_name=split_name)
+        if changed:
+            write_manifest_rows(manifest_path, existing_rows)
+        existing_row_indexes = {int(row["row_index"]) for row in existing_rows}
+
+    rows_to_write = [row for row in rows if int(row["row_index"]) not in existing_row_indexes]
+    if not rows_to_write:
         return
 
     write_header = not manifest_path.exists()
@@ -82,7 +141,7 @@ def append_manifest_rows(manifest_path: Path, rows: list[dict[str, Any]]) -> Non
         writer = csv.DictWriter(handle, fieldnames=MANIFEST_FIELDS)
         if write_header:
             writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows(rows_to_write)
 
 
 def download_image(image_url: str, image_path: Path) -> None:
@@ -114,7 +173,7 @@ def download_page(
         label_a_value = int(row["Label_A"])
         label_b_value = int(row["Label_B"])
         label_name = LABEL_MAP[label_a_value]
-        relative_path = Path(split_name) / label_name / f"{split_name}_{row_idx:06d}.png"
+        relative_path = Path(split_name) / f"{split_name}_{row_idx:06d}.png"
         image_path = export_root / relative_path
 
         download_image(row["Image"]["src"], image_path)
@@ -130,7 +189,7 @@ def download_page(
             }
         )
 
-    append_manifest_rows(manifest_path, manifest_rows)
+    append_manifest_rows(manifest_path, manifest_rows, split_name=split_name)
     returned_rows = len(batch["rows"])
     total_rows = int(batch["num_rows_total"])
     return returned_rows, total_rows
